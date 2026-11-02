@@ -1,0 +1,20 @@
+# Identidade visual do app: azul-petróleo como cor de destaque, tons neutros no fundo.
+# O tema claro/escuro pode ser trocado pelo menu ⋮ → Settings → Choose app theme.
+
+[theme]
+paddingTop = "0.5rem"     # espaço abaixo da barra do topo (valor entre aspas)
+font = "sans serif"
+
+[theme.light]
+primaryColor = "#0f766e"              # cor de destaque (widgets, links)
+backgroundColor = "#ffffff"           # fundo da página
+secondaryBackgroundColor = "#f1f5f4"  # fundo da sidebar e de widgets
+textColor = "#1f2933"                 # cor do texto
+borderColor = "#d3dcda"
+
+[theme.dark]
+primaryColor = "#2dd4bf"
+backgroundColor = "#0f1716"
+secondaryBackgroundColor = "#1b2624"
+textColor = "#f2f5f4"
+borderColor = "#34433f"
