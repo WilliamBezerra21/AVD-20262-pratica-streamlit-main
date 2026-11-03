@@ -7,7 +7,7 @@ Construção de dois dashboards em Streamlit (Aulas 21, 22 e 23) a partir da EDA
 - **Dashboard 1:** laboratório de correlação (heatmap de Spearman) e distribuição das variáveis quantitativas (um histograma por variável: preço, idade, quilometragem, cilindrada, potência, consumo, assentos).
 - **Dashboard 2:** KPIs para quem compra ou vende carro usado (preço mediano, % de automáticos, idade e quilometragem medianas) e três gráficos (preço por marca, anúncios por faixa de km e câmbio, desvalorização por idade), ligados pelo clique no gráfico de marcas.
 
-**Link do app:** _(preencher após o deploy: https://SEU-APP.streamlit.app)_
+**Link do app:** https://avd-20262-pratica-app-main-dnirx8vsx6gw4qpiqqj8cm.streamlit.app/
 
 **Dados sensíveis:** o dataset é público (Kaggle) e descreve só os carros (modelo, cidade, ano, km, preço). Não há nome, contato ou documento de vendedor ou comprador, e não há `secrets.toml` no repositório.
 
@@ -18,7 +18,7 @@ Construção de dois dashboards em Streamlit (Aulas 21, 22 e 23) a partir da EDA
 - [ ] Os dois dashboards carregam pelas abas
 - [ ] Filtros do Dashboard 2 e clique no gráfico de marcas atualizam KPIs e gráficos
 - [ ] Nenhum dado sensível exposto (sem dados pessoais e sem `secrets.toml`)
-- [ ] Link do app preenchido acima
+- [x] Link do app preenchido acima
 
 ## Setup
 
