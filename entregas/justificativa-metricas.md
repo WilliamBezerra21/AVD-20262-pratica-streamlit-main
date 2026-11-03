@@ -4,7 +4,7 @@
 
 As métricas usam **mediana** em vez de média: na EDA (seção 3), `Price`, `Power_bhp` e `Kilometers_Driven` mostraram forte assimetria à direita e outliers que foram mantidos. A média seria puxada pelos poucos carros de luxo e pelas quilometragens extremas.
 
-Todas as métricas respondem aos filtros da sidebar, aos filtros do topo do Dashboard 2 (cidade, combustível, câmbio) e ao clique no gráfico de marcas.
+Todas as métricas respondem aos filtros da sidebar, aos filtros do topo do Dashboard 2 (cidade, combustível e histórico de donos) e ao clique no gráfico de marcas. Cada KPI mostra também a diferença (*delta*) em relação ao mercado inteiro (todos os 6.019 anúncios), para o público saber se o recorte está acima ou abaixo do padrão.
 
 ## Métrica 1: Preço mediano
 - **Variável:** `Price` (preço do anúncio, em lakh de rúpias; 1 lakh = 100.000 ₹)
@@ -39,6 +39,6 @@ Todas as métricas respondem aos filtros da sidebar, aos filtros do topo do Dash
 - **O que comunica ao público-alvo:** "um carro típico deste grupo rodou cerca de X km".
 
 ## Visuais de apoio
-- **Preço mediano por marca** (15 marcas com mais anúncios): ranking de preço; o clique numa barra filtra as métricas e os outros gráficos.
-- **Preço mediano por idade, por câmbio:** mostra a desvalorização ao longo dos anos, separando manual e automático (relação preço × idade × transmissão da seção 7 da EDA).
-- **Anúncios por cidade e combustível:** onde está a oferta e o predomínio de Diesel e Petrol observado na EDA.
+- **Preço mediano por marca** (15 marcas com mais anúncios, barras verticais): ranking de preço; o clique numa barra filtra as métricas e o gráfico ao lado.
+- **Anúncios por faixa de quilometragem e câmbio** (barras agrupadas): a quilometragem é discretizada em faixas (até 30 mil, 30–60 mil, 60–100 mil, 100 mil ou mais) e separada por Manual × Automático. Mostra onde está a oferta e como o automático se distribui em relação ao desgaste (relação km × transmissão da EDA).
+- **Preço mediano por idade do carro** (linhas, Manual × Automático): curva de desvalorização. Mostra quanto um carro perde de valor a cada ano de uso e que o automático parte de um preço mais alto (relação idade × preço, Spearman ≈ −0,49 na EDA). Só entram idades com pelo menos 5 anúncios no recorte, para a curva não oscilar por causa de poucos carros. Também responde ao clique no gráfico de marcas.

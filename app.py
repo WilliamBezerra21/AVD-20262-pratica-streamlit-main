@@ -6,16 +6,26 @@ import streamlit as st
 from src.data_loader import load_data
 
 st.set_page_config(
-    page_title="Carros Usados na Índia",
+    page_title="Carros Usados na Índia — Dashboards",
     layout="wide",
 )
 
-st.title("Análise de Carros Usados na Índia")
+st.title("Análise Exploratória e de Mercado — Carros Usados na Índia")
 
 df = load_data()
 
-# Variáveis quantitativas do estudo (mesma lista VARS_QUANT do notebook de EDA) e o nome exibido de cada uma
-ROTULOS = {
+# Variáveis quantitativas do estudo (mesma lista VARS_QUANT do notebook de EDA)
+VARS_QUANT = [
+    "Price",
+    "Vehicle_Age",
+    "Kilometers_Driven",
+    "Mileage_value",
+    "Engine_cc",
+    "Power_bhp",
+    "Seats",
+]
+
+ROTULOS_CURTOS = {
     "Price": "Preço (lakh ₹)",
     "Vehicle_Age": "Idade (anos)",
     "Kilometers_Driven": "Quilometragem (km)",
@@ -24,51 +34,52 @@ ROTULOS = {
     "Power_bhp": "Potência (bhp)",
     "Seats": "Assentos",
 }
-VARS_QUANT = list(ROTULOS)
 
-# Variáveis categóricas que podem colorir a distribuição
-CLASSES = {
-    "Transmission": "Câmbio",
-    "Fuel_Type": "Combustível",
-    "Owner_Type": "Nº de donos",
-}
+# Classe binária usada para colorir os gráficos: o câmbio (Manual x Automático)
+COR_MANUAL = "#e9d4d0"
+COR_AUTOMATICO = "#2d223a"
+COR_PADRAO = "#c84b31"
+CORES_CLASSE = alt.Scale(domain=["Manual", "Automatic"], range=[COR_MANUAL, COR_AUTOMATICO])
 
 
+# Pré-agrega os intervalos do histograma no pandas (o Altair tem limite de 5.000 linhas)
 @st.cache_data
-def histograma_agregado(dados: pd.DataFrame, coluna: str, classe: str | None, bins: int = 30) -> pd.DataFrame:
-    """Conta os valores por faixa no pandas, para o Altair não receber milhares de linhas."""
-    bordas = np.histogram_bin_edges(dados[coluna], bins=bins)
-    grupos = dados.groupby(classe) if classe else [(None, dados)]
-    partes = []
-    for nome, grupo in grupos:
-        quantidade, _ = np.histogram(grupo[coluna], bins=bordas)
-        parte = pd.DataFrame({"inicio": bordas[:-1], "fim": bordas[1:], "quantidade": quantidade})
-        if classe:
-            parte[classe] = nome
-        partes.append(parte)
-    return pd.concat(partes, ignore_index=True)
+def calcular_histograma_agregado(dados: pd.DataFrame, coluna: str, por_classe: bool, bins: int = 24) -> pd.DataFrame:
+    """Conta os carros por faixa no pandas, para o Altair não receber milhares de linhas."""
+    serie = dados[coluna].dropna()
+    if serie.empty:
+        return pd.DataFrame()
+    cortes = np.linspace(float(serie.min()), float(serie.max()), bins + 1)
+    if cortes[0] == cortes[-1]:
+        cortes[-1] = cortes[0] + 1.0
+    indices = np.clip(np.digitize(dados[coluna], cortes, right=True) - 1, 0, bins - 1)
+    aux = pd.DataFrame({
+        "bin_ini": cortes[indices],
+        "bin_fim": cortes[indices + 1],
+        "Transmission": dados["Transmission"].values,
+    })
+    cols_grupo = ["bin_ini", "bin_fim", "Transmission"] if por_classe else ["bin_ini", "bin_fim"]
+    return aux.groupby(cols_grupo, as_index=False).size().rename(columns={"size": "contagem"})
 
 
-# Sidebar: filtros (variáveis + intervalo)
+# Sidebar: filtros globais de variáveis quantitativas e intervalos
 with st.sidebar:
-    st.header("Filtros")
+    st.header("Filtros — Variáveis Quantitativas")
 
     variaveis = st.multiselect(
         "Variáveis Quantitativas",
         options=VARS_QUANT,
         default=VARS_QUANT,
-        format_func=lambda v: ROTULOS[v],
-        help="Selecione as variáveis quantitativas que deseja analisar no dashboard.",
+        format_func=lambda v: ROTULOS_CURTOS.get(v, v),
+        help="Selecione as variáveis quantitativas que deseja analisar no Dashboard 1.",
     )
 
-    classe = st.selectbox(
-        "Distinguir por",
-        options=[None, *CLASSES],
-        format_func=lambda c: "Nenhuma" if c is None else CLASSES[c],
-        help="Colore a distribuição por uma variável categórica.",
+    separar_por_classe = st.toggle(
+        "Distinguir por Câmbio",
+        value=False,
+        help="Colore a distribuição pelo câmbio (Manual ou Automático).",
     )
 
-    # Um slider de intervalo para cada variável selecionada
     intervalos = {}
     for var in variaveis:
         if pd.api.types.is_integer_dtype(df[var]):
@@ -76,7 +87,7 @@ with st.sidebar:
         else:
             minimo, maximo, passo = float(df[var].min()), float(df[var].max()), 0.1
         intervalos[var] = st.slider(
-            ROTULOS[var],
+            f"Intervalo de {ROTULOS_CURTOS.get(var, var)}",
             min_value=minimo,
             max_value=maximo,
             value=(minimo, maximo),
@@ -84,232 +95,375 @@ with st.sidebar:
             key=f"intervalo_{var}",
         )
 
-# Mantém só os carros dentro de todos os intervalos escolhidos
+# Aplica os filtros de intervalo da sidebar
 df_filtrado = df
 for var, (inicio, fim) in intervalos.items():
     df_filtrado = df_filtrado[df_filtrado[var].between(inicio, fim)]
 
-st.caption(f"{len(df_filtrado)} de {len(df)} carros dentro dos intervalos escolhidos.")
+st.caption(
+    f"{len(df_filtrado):,} de {len(df):,} carros dentro dos intervalos selecionados na barra lateral.".replace(",", ".")
+)
 
-if df_filtrado.empty:
-    st.warning("Nenhum carro dentro dos intervalos escolhidos. Amplie os filtros.")
-    st.stop()
+# Abas separando Dashboard 1 e Dashboard 2
+tab_dash1, tab_dash2 = st.tabs([
+    "Dashboard 1 — Correlação e Distribuição",
+    "Dashboard 2 — KPIs do Mercado",
+])
 
-tab_dash1, tab_dash2 = st.tabs(["Dashboard 1 — Correlação e Distribuição", "Dashboard 2 — KPIs"])
-
-# Dashboard 1: correlação (heatmap) à esquerda, distribuição (histograma) à direita
+# =========================================================================
+# ABA 1: DASHBOARD 1 (Correlação de Spearman + Distribuição em Altair)
+# =========================================================================
 with tab_dash1:
-    col_correlacao, col_distribuicao = st.columns([1, 1.5])
+    col_correlacao, col_distribuicao = st.columns([1.1, 1.2], gap="large")
 
     with col_correlacao:
         st.subheader("Correlação (Spearman)")
 
         if len(variaveis) < 2:
             st.warning("Selecione pelo menos 2 variáveis para calcular a correlação.")
+        elif len(df_filtrado) < 30:
+            st.warning("Poucos carros nos intervalos escolhidos para calcular a correlação.")
         else:
-            # Spearman, como na EDA: preço, potência e quilometragem são assimétricos e têm
-            # outliers (mantidos), e a correlação por postos é mais robusta que a de Pearson
-            correlacao = df_filtrado[variaveis].corr(method="spearman").rename(index=ROTULOS, columns=ROTULOS)
-            correlacao_longa = correlacao.reset_index(names="var_x").melt(
-                id_vars="var_x", var_name="var_y", value_name="correlacao"
+            # Spearman, como na EDA: preço, potência e quilometragem são assimétricos e têm outliers.
+            # Mostra só o triângulo inferior da matriz (sem a diagonal e sem repetir pares).
+            corr = (
+                df_filtrado[variaveis]
+                .corr(method="spearman")
+                .rename_axis(index="var_y", columns="var_x")
+                .stack()
+                .rename("correlacao")
+                .reset_index()
             )
-            ordem = [ROTULOS[v] for v in variaveis]
+            ordem = {var: i for i, var in enumerate(variaveis)}
+            corr = corr[corr["var_y"].map(ordem) > corr["var_x"].map(ordem)].copy()
+            corr["label_x"] = corr["var_x"].map(ROTULOS_CURTOS)
+            corr["label_y"] = corr["var_y"].map(ROTULOS_CURTOS)
+            ordem_x = [ROTULOS_CURTOS[v] for v in variaveis[:-1]]
+            ordem_y = [ROTULOS_CURTOS[v] for v in variaveis[1:]]
 
-            base = alt.Chart(correlacao_longa).encode(
-                x=alt.X("var_x:N", sort=ordem, title=None, axis=alt.Axis(labelAngle=-45)),
-                y=alt.Y("var_y:N", sort=ordem, title=None),
+            base = alt.Chart(corr).encode(
+                x=alt.X("label_x:N", title=None, sort=ordem_x, axis=alt.Axis(labelAngle=-35, labelFontSize=11)),
+                y=alt.Y("label_y:N", title=None, sort=ordem_y, axis=alt.Axis(labelFontSize=11)),
             )
-            celulas = base.mark_rect().encode(
+            heatmap = base.mark_rect().encode(
                 color=alt.Color(
                     "correlacao:Q",
+                    title="Spearman (r)",
                     scale=alt.Scale(scheme="redblue", domain=[-1, 1], reverse=True),
-                    title="ρ",
                 ),
                 tooltip=[
-                    alt.Tooltip("var_x:N", title="Variável 1"),
-                    alt.Tooltip("var_y:N", title="Variável 2"),
-                    alt.Tooltip("correlacao:Q", title="Correlação", format=".2f"),
+                    alt.Tooltip("label_y:N", title="Variável Y"),
+                    alt.Tooltip("label_x:N", title="Variável X"),
+                    alt.Tooltip("correlacao:Q", title="Correlação (r)", format=".2f"),
                 ],
             )
-            textos = base.mark_text(fontSize=12).encode(
+            valores = base.mark_text(fontSize=13).encode(
                 text=alt.Text("correlacao:Q", format=".2f"),
-                color=alt.condition(
-                    "abs(datum.correlacao) > 0.6", alt.value("white"), alt.value("black")
-                ),
+                color=alt.condition("abs(datum.correlacao) > 0.5", alt.value("white"), alt.value("black")),
             )
-            st.altair_chart((celulas + textos).properties(height=420), width="stretch")
+
+            st.altair_chart(
+                (heatmap + valores).properties(height=470),
+                width="stretch",
+            )
 
     with col_distribuicao:
         st.subheader("Distribuição")
 
         if not variaveis:
-            st.warning("Selecione pelo menos 1 variável na barra lateral.")
+            st.warning("Selecione pelo menos 1 variável para ver a distribuição.")
+        elif df_filtrado.empty:
+            st.warning("Nenhum carro dentro dos intervalos escolhidos.")
         else:
             var_hist = st.selectbox(
-                "Variável do histograma",
+                "Variável para o histograma",
                 options=variaveis,
-                format_func=lambda v: ROTULOS[v],
+                format_func=lambda v: ROTULOS_CURTOS.get(v, v),
+                help="Escolha a variável quantitativa cuja distribuição será exibida.",
             )
-            if df_filtrado[var_hist].nunique() < 2:
-                st.info("O intervalo escolhido tem um único valor; não há distribuição para mostrar.")
-            else:
-                contagem = histograma_agregado(df_filtrado, var_hist, classe)
 
-                histograma = alt.Chart(contagem).mark_bar(opacity=0.8).encode(
-                    x=alt.X("inicio:Q", bin="binned", title=ROTULOS[var_hist]),
-                    x2="fim:Q",
-                    y=alt.Y("quantidade:Q", title="Quantidade de carros", stack=bool(classe)),
+            df_bins = calcular_histograma_agregado(df_filtrado, var_hist, separar_por_classe, bins=24)
+
+            histograma = (
+                alt.Chart(df_bins)
+                .mark_bar(opacity=0.85)
+                .encode(
+                    x=alt.X("bin_ini:Q", bin="binned", title=ROTULOS_CURTOS[var_hist]),
+                    x2="bin_fim:Q",
+                    y=alt.Y("contagem:Q", title="Quantidade de Carros"),
+                )
+                .properties(height=400)
+            )
+            if separar_por_classe:
+                histograma = histograma.encode(
+                    color=alt.Color("Transmission:N", title="Câmbio", scale=CORES_CLASSE),
                     tooltip=[
-                        alt.Tooltip("inicio:Q", title="De", format=",.1f"),
-                        alt.Tooltip("fim:Q", title="Até", format=",.1f"),
-                        alt.Tooltip("quantidade:Q", title="Carros"),
+                        alt.Tooltip("Transmission:N", title="Câmbio"),
+                        alt.Tooltip("bin_ini:Q", title="Intervalo inicial", format=",.1f"),
+                        alt.Tooltip("bin_fim:Q", title="Intervalo final", format=",.1f"),
+                        alt.Tooltip("contagem:Q", title="Carros", format=","),
                     ],
                 )
-                if classe:
-                    histograma = histograma.encode(
-                        color=alt.Color(f"{classe}:N", title=CLASSES[classe]),
-                        tooltip=[
-                            alt.Tooltip(f"{classe}:N", title=CLASSES[classe]),
-                            alt.Tooltip("inicio:Q", title="De", format=",.1f"),
-                            alt.Tooltip("fim:Q", title="Até", format=",.1f"),
-                            alt.Tooltip("quantidade:Q", title="Carros"),
-                        ],
-                    )
-                st.altair_chart(histograma.properties(height=420), width="stretch")
+            else:
+                histograma = histograma.mark_bar(color=COR_PADRAO).encode(
+                    tooltip=[
+                        alt.Tooltip("bin_ini:Q", title="Intervalo inicial", format=",.1f"),
+                        alt.Tooltip("bin_fim:Q", title="Intervalo final", format=",.1f"),
+                        alt.Tooltip("contagem:Q", title="Carros", format=","),
+                    ]
+                )
 
-                serie = df_filtrado[var_hist]
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Média", f"{serie.mean():,.1f}")
-                c2.metric("Mediana", f"{serie.median():,.1f}")
-                c3.metric("Desvio padrão", f"{serie.std():,.1f}")
+            st.altair_chart(histograma, width="stretch")
 
-# Dashboard 2: widgets no topo → KPIs → gráficos ligados por clique (cross-filter)
-# As métricas usam mediana porque preço, potência e quilometragem são assimétricos (ver EDA)
+    # Um histograma para cada variável quantitativa selecionada na sidebar
+    if variaveis and not df_filtrado.empty:
+        st.subheader("Histogramas de Todas as Variáveis Selecionadas")
+        grade = st.columns(3, gap="medium")
+        for i, var in enumerate(variaveis):
+            bins_var = calcular_histograma_agregado(df_filtrado, var, separar_por_classe, bins=20)
+            mini = (
+                alt.Chart(bins_var)
+                .mark_bar(opacity=0.85)
+                .encode(
+                    x=alt.X("bin_ini:Q", bin="binned", title=ROTULOS_CURTOS[var]),
+                    x2="bin_fim:Q",
+                    y=alt.Y("contagem:Q", title="Carros"),
+                    tooltip=[
+                        alt.Tooltip("bin_ini:Q", title="De", format=",.1f"),
+                        alt.Tooltip("bin_fim:Q", title="Até", format=",.1f"),
+                        alt.Tooltip("contagem:Q", title="Carros", format=","),
+                    ],
+                )
+                .properties(height=220)
+            )
+            if separar_por_classe:
+                mini = mini.encode(color=alt.Color("Transmission:N", title="Câmbio", scale=CORES_CLASSE))
+            else:
+                mini = mini.mark_bar(color=COR_PADRAO)
+            with grade[i % 3]:
+                st.altair_chart(mini, width="stretch")
+
+# =========================================================================
+# ABA 2: DASHBOARD 2 (KPIs + Gráficos de Barras com Cross-Filter)
+# As métricas usam mediana porque preço e quilometragem são assimétricos (ver EDA)
+# =========================================================================
 with tab_dash2:
-    st.subheader("Painel do Mercado de Carros Usados")
+    st.subheader("Painel de Indicadores do Mercado (KPIs)")
 
-    # Widgets do Dashboard 2 (combinam com os filtros da sidebar)
-    w_cidade, w_combustivel, w_cambio = st.columns(3)
-    cidades = w_cidade.multiselect(
-        "Cidade", options=sorted(df_filtrado["Location"].unique()), placeholder="Todas"
-    )
-    combustiveis = w_combustivel.multiselect(
-        "Combustível", options=sorted(df_filtrado["Fuel_Type"].unique()), placeholder="Todos"
-    )
-    cambios = w_cambio.multiselect(
-        "Câmbio", options=sorted(df_filtrado["Transmission"].unique()), placeholder="Todos"
-    )
+    # Controles dedicados do Dashboard 2
+    f_col1, f_col2, f_col3 = st.columns([1.3, 1.3, 1])
 
-    df_d2 = df_filtrado
-    for coluna, escolhidos in [("Location", cidades), ("Fuel_Type", combustiveis), ("Transmission", cambios)]:
-        if escolhidos:
-            df_d2 = df_d2[df_d2[coluna].isin(escolhidos)]
+    opcoes_cidades = sorted(df["Location"].dropna().unique().tolist())
+    opcoes_combustivel = sorted(df["Fuel_Type"].dropna().unique().tolist())
+
+    with f_col1:
+        cidades_filtro = st.multiselect(
+            "Cidade (Location)",
+            options=opcoes_cidades,
+            default=opcoes_cidades,
+            key="d2_cidades",
+        )
+    with f_col2:
+        combustivel_filtro = st.multiselect(
+            "Combustível (Fuel_Type)",
+            options=opcoes_combustivel,
+            default=opcoes_combustivel,
+            key="d2_combustivel",
+        )
+    with f_col3:
+        filtro_dono = st.selectbox(
+            "Histórico de Donos (Owner_Type)",
+            options=["Todos", "Apenas 1º dono", "2 donos ou mais"],
+            index=0,
+            key="d2_dono",
+        )
+
+    df_d2 = df_filtrado[
+        df_filtrado["Location"].isin(cidades_filtro) & df_filtrado["Fuel_Type"].isin(combustivel_filtro)
+    ]
+    if filtro_dono == "Apenas 1º dono":
+        df_d2 = df_d2[df_d2["Owner_Type"] == "First"]
+    elif filtro_dono == "2 donos ou mais":
+        df_d2 = df_d2[df_d2["Owner_Type"] != "First"]
 
     if df_d2.empty:
-        st.warning("Nenhum carro para essa combinação de filtros.")
+        st.warning("Nenhum carro encontrado para os filtros selecionados no Dashboard 2.")
     else:
-        # Gráfico de marcas: o clique numa barra filtra os KPIs e os outros gráficos
+        # Agregação por marca (15 marcas com mais anúncios) para o gráfico com seleção cruzada
         top_marcas = df_d2["Brand"].value_counts().head(15).index
-        por_marca = (
+        resumo_marca = (
             df_d2[df_d2["Brand"].isin(top_marcas)]
-            .groupby("Brand")
-            .agg(preco_mediano=("Price", "median"), anuncios=("Price", "size"))
-            .reset_index()
+            .groupby("Brand", as_index=False)
+            .agg(
+                anuncios=("Price", "size"),
+                preco_mediano=("Price", "median"),
+                pct_automatico=("Transmission", lambda s: (s == "Automatic").mean() * 100),
+            )
+            .sort_values("preco_mediano", ascending=False)
         )
-        clique_marca = alt.selection_point(name="marca", fields=["Brand"])
-        grafico_marcas = (
-            alt.Chart(por_marca)
-            .mark_bar()
+
+        selecao_marca = alt.selection_point(name="selecao_marca", fields=["Brand"])
+
+        grafico_barras_marca = (
+            alt.Chart(resumo_marca)
+            .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
             .encode(
-                x=alt.X("preco_mediano:Q", title="Preço mediano (lakh ₹)"),
-                y=alt.Y("Brand:N", sort="-x", title=None),
-                opacity=alt.condition(clique_marca, alt.value(1), alt.value(0.3)),
+                x=alt.X("Brand:N", sort="-y", title="Marca", axis=alt.Axis(labelAngle=-35)),
+                y=alt.Y("preco_mediano:Q", title="Preço Mediano (lakh ₹)"),
+                color=alt.condition(
+                    selecao_marca,
+                    alt.Color("preco_mediano:Q", title="Preço (lakh)", scale=alt.Scale(scheme="orangered")),
+                    alt.value("#d5d1cd"),
+                ),
+                opacity=alt.condition(selecao_marca, alt.value(1.0), alt.value(0.45)),
                 tooltip=[
                     alt.Tooltip("Brand:N", title="Marca"),
-                    alt.Tooltip("preco_mediano:Q", title="Preço mediano", format=".2f"),
-                    alt.Tooltip("anuncios:Q", title="Anúncios"),
+                    alt.Tooltip("preco_mediano:Q", title="Preço Mediano (lakh)", format=".2f"),
+                    alt.Tooltip("pct_automatico:Q", title="Automáticos (%)", format=".1f"),
+                    alt.Tooltip("anuncios:Q", title="Anúncios", format=","),
                 ],
             )
-            .add_params(clique_marca)
-            .properties(height=420)
+            .add_params(selecao_marca)
+            .properties(height=360, title="Preço Mediano por Marca (clique em uma barra para filtrar)")
         )
 
-        # Lê as marcas clicadas antes de desenhar os KPIs (o gráfico é exibido mais abaixo)
-        marcas = [item["Brand"] for item in st.session_state.get("grafico_marcas", {}).get("selection", {}).get("marca", [])]
-        selecionado = df_d2[df_d2["Brand"].isin(marcas)] if marcas else df_d2
+        # Container para os KPIs no topo (preenchido depois de ler o clique no gráfico abaixo)
+        container_kpis = st.container()
 
-        if marcas:
-            st.caption(f"Marcas selecionadas no gráfico: {', '.join(marcas)}. Clique fora das barras para limpar.")
+        st.markdown("#### Preço por Marca e Quilometragem por Câmbio")
+        g_col1, g_col2 = st.columns([1.1, 1.1], gap="large")
 
-        # KPIs, com a diferença em relação ao recorte sem o clique
-        k1, k2, k3, k4 = st.columns(4)
-        preco = selecionado["Price"].median()
-        k1.metric(
-            "Preço mediano",
-            f"{preco:.2f} lakh",
-            delta=f"{preco - df_d2['Price'].median():+.2f} vs. recorte" if marcas else None,
-            delta_color="off",
-            border=True,
-        )
-        k2.metric(
-            "Carros automáticos",
-            f"{(selecionado['Transmission'] == 'Automatic').mean():.0%}",
-            border=True,
-        )
-        k3.metric("Idade mediana", f"{selecionado['Vehicle_Age'].median():.0f} anos", border=True)
-        k4.metric(
-            "Quilometragem mediana",
-            f"{selecionado['Kilometers_Driven'].median():,.0f} km".replace(",", "."),
-            border=True,
-        )
-        st.caption(f"{len(selecionado)} anúncios no recorte.")
-
-        col_marcas, col_idade = st.columns([1, 1.3])
-
-        with col_marcas:
-            st.markdown("**Preço mediano por marca** (15 marcas com mais anúncios)")
-            st.altair_chart(grafico_marcas, key="grafico_marcas", on_select="rerun", width="stretch")
-
-        with col_idade:
-            st.markdown("**Desvalorização: preço mediano por idade do carro**")
-            por_idade = (
-                selecionado.groupby(["Vehicle_Age", "Transmission"])
-                .agg(preco_mediano=("Price", "median"), anuncios=("Price", "size"))
-                .reset_index()
+        with g_col1:
+            evento_marca = st.altair_chart(
+                grafico_barras_marca,
+                key="chart_barras_marca",
+                on_select="rerun",
+                width="stretch",
             )
-            grafico_idade = (
-                alt.Chart(por_idade)
-                .mark_line(point=True)
+
+        # Marcas clicadas no gráfico de barras
+        itens_clicados = []
+        if evento_marca and hasattr(evento_marca, "selection"):
+            itens_clicados = evento_marca.selection.get("selecao_marca", [])
+        marcas_selecionadas = [item["Brand"] for item in itens_clicados if "Brand" in item]
+
+        df_kpis = df_d2[df_d2["Brand"].isin(marcas_selecionadas)] if marcas_selecionadas else df_d2
+
+        # Referências do mercado inteiro (para o delta comparativo)
+        preco_base = df["Price"].median()
+        auto_base = (df["Transmission"] == "Automatic").mean() * 100
+        idade_base = df["Vehicle_Age"].median()
+        km_base = df["Kilometers_Driven"].median()
+
+        # As 4 métricas sobre o recorte ativo (df_kpis)
+        preco = df_kpis["Price"].median()
+        pct_auto = (df_kpis["Transmission"] == "Automatic").mean() * 100
+        idade = df_kpis["Vehicle_Age"].median()
+        km = df_kpis["Kilometers_Driven"].median()
+
+        with container_kpis:
+            if marcas_selecionadas:
+                st.info(
+                    f"Filtro interativo ativo no gráfico: **{', '.join(marcas_selecionadas)}** "
+                    f"({len(df_kpis):,} carros). Clique em uma área vazia do gráfico para limpar.".replace(",", ".")
+                )
+
+            k1, k2, k3, k4 = st.columns(4, gap="small")
+            k1.metric(
+                "Preço Mediano",
+                f"{preco:.2f} lakh",
+                delta=f"{preco - preco_base:+.2f} lakh vs mercado",
+                delta_color="off",
+                border=True,
+                help="Preço do meio dos carros do recorte (Price, em lakh ₹; 1 lakh = 100.000 ₹).",
+            )
+            k2.metric(
+                "Carros Automáticos",
+                f"{pct_auto:.1f}%",
+                delta=f"{pct_auto - auto_base:+.1f} p.p. vs mercado",
+                delta_color="off",
+                border=True,
+                help="Proporção de anúncios com câmbio automático (Transmission == Automatic).",
+            )
+            k3.metric(
+                "Idade Mediana",
+                f"{idade:.0f} anos",
+                delta=f"{idade - idade_base:+.0f} anos vs mercado",
+                delta_color="inverse",
+                border=True,
+                help="Idade típica dos carros do recorte (Vehicle_Age, referência 2019).",
+            )
+            k4.metric(
+                "Quilometragem Mediana",
+                f"{km:,.0f} km".replace(",", "."),
+                delta=f"{km - km_base:+,.0f} km vs mercado".replace(",", "."),
+                delta_color="inverse",
+                border=True,
+                help="Quilometragem típica dos carros do recorte (Kilometers_Driven).",
+            )
+
+        with g_col2:
+            # Discretização da quilometragem combinada com o câmbio
+            ordem_faixas = ["Até 30 mil", "30–60 mil", "60–100 mil", "100 mil ou mais"]
+            faixas = pd.cut(
+                df_kpis["Kilometers_Driven"],
+                bins=[-1, 30_000, 60_000, 100_000, float("inf")],
+                labels=ordem_faixas,
+            )
+            resumo_km = (
+                df_kpis.assign(faixa_km=faixas)
+                .groupby(["faixa_km", "Transmission"], observed=True, as_index=False)
+                .agg(anuncios=("Price", "size"), preco_mediano=("Price", "median"))
+            )
+
+            grafico_km = (
+                alt.Chart(resumo_km)
+                .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
                 .encode(
-                    x=alt.X("Vehicle_Age:Q", title="Idade (anos)"),
-                    y=alt.Y("preco_mediano:Q", title="Preço mediano (lakh ₹)"),
-                    color=alt.Color("Transmission:N", title="Câmbio"),
+                    x=alt.X("faixa_km:N", sort=ordem_faixas, title="Faixa de Quilometragem", axis=alt.Axis(labelAngle=0)),
+                    y=alt.Y("anuncios:Q", title="Quantidade de Anúncios"),
+                    color=alt.Color("Transmission:N", title="Câmbio", scale=CORES_CLASSE),
+                    xOffset="Transmission:N",
                     tooltip=[
-                        alt.Tooltip("Vehicle_Age:Q", title="Idade"),
+                        alt.Tooltip("faixa_km:N", title="Quilometragem"),
                         alt.Tooltip("Transmission:N", title="Câmbio"),
-                        alt.Tooltip("preco_mediano:Q", title="Preço mediano", format=".2f"),
-                        alt.Tooltip("anuncios:Q", title="Anúncios"),
+                        alt.Tooltip("anuncios:Q", title="Anúncios", format=","),
+                        alt.Tooltip("preco_mediano:Q", title="Preço Mediano (lakh)", format=".2f"),
                     ],
                 )
-                .properties(height=420)
+                .properties(height=360, title="Anúncios por Faixa de Quilometragem e Câmbio")
             )
-            st.altair_chart(grafico_idade, width="stretch")
+            st.altair_chart(grafico_km, width="stretch")
 
-        st.markdown("**Anúncios por cidade e combustível**")
-        por_cidade = selecionado.groupby(["Location", "Fuel_Type"]).size().reset_index(name="anuncios")
-        grafico_cidades = (
-            alt.Chart(por_cidade)
-            .mark_bar()
+        # Visual 3: como o preço cai com a idade, separado por câmbio (relação idade × preço da EDA)
+        st.markdown("#### Desvalorização com a Idade")
+        resumo_idade = (
+            df_kpis.groupby(["Vehicle_Age", "Transmission"], as_index=False)
+            .agg(anuncios=("Price", "size"), preco_mediano=("Price", "median"))
+        )
+        resumo_idade = resumo_idade[resumo_idade["anuncios"] >= 5]  # evita pontos com poucos anúncios
+
+        grafico_idade = (
+            alt.Chart(resumo_idade)
+            .mark_line(point=True, strokeWidth=2.5)
             .encode(
-                x=alt.X("Location:N", sort="-y", title=None, axis=alt.Axis(labelAngle=0)),
-                y=alt.Y("anuncios:Q", title="Anúncios"),
-                color=alt.Color("Fuel_Type:N", title="Combustível"),
+                x=alt.X("Vehicle_Age:Q", title="Idade do Carro (anos)", axis=alt.Axis(tickMinStep=1)),
+                y=alt.Y("preco_mediano:Q", title="Preço Mediano (lakh ₹)"),
+                color=alt.Color(
+                    "Transmission:N",
+                    title="Câmbio",
+                    scale=alt.Scale(domain=["Manual", "Automatic"], range=[COR_PADRAO, COR_AUTOMATICO]),
+                ),
                 tooltip=[
-                    alt.Tooltip("Location:N", title="Cidade"),
-                    alt.Tooltip("Fuel_Type:N", title="Combustível"),
-                    alt.Tooltip("anuncios:Q", title="Anúncios"),
+                    alt.Tooltip("Vehicle_Age:Q", title="Idade (anos)"),
+                    alt.Tooltip("Transmission:N", title="Câmbio"),
+                    alt.Tooltip("preco_mediano:Q", title="Preço Mediano (lakh)", format=".2f"),
+                    alt.Tooltip("anuncios:Q", title="Anúncios", format=","),
                 ],
             )
-            .properties(height=320)
+            .properties(height=320, title="Preço Mediano por Idade do Carro (Manual × Automático)")
         )
-        st.altair_chart(grafico_cidades, width="stretch")
+        if resumo_idade.empty:
+            st.info("Poucos anúncios no recorte para traçar a curva de desvalorização.")
+        else:
+            st.altair_chart(grafico_idade, width="stretch")
