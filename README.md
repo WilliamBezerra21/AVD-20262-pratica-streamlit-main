@@ -14,9 +14,9 @@ Construção de dois dashboards em Streamlit (Aulas 21, 22 e 23) a partir da EDA
 ## Checklist do app publicado
 
 - [x] Abrir o link do app em uma janela anônima
-- [ ] Todos os widgets da sidebar respondem (seletor de variáveis, toggle de câmbio, sliders de intervalo)
-- [ ] Os dois dashboards carregam pelas abas
-- [ ] Filtros do Dashboard 2 e clique no gráfico de marcas atualizam KPIs e gráficos
+- [x] Todos os widgets da sidebar respondem (seletor de variáveis, toggle de câmbio, sliders de intervalo)
+- [x] Os dois dashboards carregam pelas abas
+- [x] Filtros do Dashboard 2 e clique no gráfico de marcas atualizam KPIs e gráficos
 - [x] Nenhum dado sensível exposto (sem dados pessoais e sem `secrets.toml`)
 - [x] Link do app preenchido acima
 
